@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <title>Ragnarok Survivors — Midgard Horde</title>
+  <meta name="description" content="Play Ragnarok Survivors directly in your browser: an Azeroth Survivors-inspired Ragnarok Online action roguelite built with authentic RO sprites, skills, cards, maps, and SoundTeMP music." />
+  <link rel="icon" href="assets/icons/job/4008.png" type="image/png" />
+  <link rel="stylesheet" href="styles.css?v=2" />
+</head>
+<body>
+  <!-- Fullscreen Game Canvas -->
+  <canvas id="game-canvas"></canvas>
+
+  <!-- Loading Overlay -->
+  <div id="loading-screen" class="overlay active">
+    <div class="ro-window loading-window">
+      <div class="ro-titlebar">
+        <span class="ro-titlebar-dot"></span>
+        <span>Patching Midgard Client Assets...</span>
+      </div>
+      <div class="ro-window-body loading-body">
+        <h1 class="game-logo-title">RAGNAROK SURVIVORS</h1>
+        <p class="game-logo-sub">Chronicles of Rune-Midgards</p>
+        <div class="loading-bar-track">
+          <div id="loading-bar-fill" class="loading-bar-fill"></div>
+        </div>
+        <div id="loading-status" class="loading-status">Initializing Prontera Gate...</div>
+      </div>
+    </div>
+  </div>
+  <script>
+    window.__roBootFail = function (msg) {
+      var st = document.getElementById('loading-status');
+      if (st) st.textContent = 'Notice: ' + msg;
+    };
+    window.addEventListener('error', function (e) {
+      if (document.getElementById('loading-screen')?.classList.contains('active')) {
+        window.__roBootFail(e.message || 'Runtime script error');
+      }
+    });
+    window.addEventListener('unhandledrejection', function (e) {
+      if (document.getElementById('loading-screen')?.classList.contains('active')) {
+        window.__roBootFail((e.reason && e.reason.message) || String(e.reason));
+      }
+    });
+  </script>
+
+  <!-- Character & Zone Pick Screen (Azeroth Survivors + Classic RO Glue Screen) -->
+  <section id="menu-screen" class="overlay">
+    <header class="menu-topbar">
+      <div class="brand-block">
+        <div class="brand-crest">RO</div>
+        <div>
+          <div class="brand-title">RAGNAROK SURVIVORS</div>
+          <div class="brand-subtitle">WASD Move · Auto-Cast Skills · F Mobility · Bosses Every 2m</div>
+        </div>
+      </div>
+
+      <div class="meta-topbar-actions">
+        <div class="zeny-pill" title="Permanent Zeny earned across runs">
+          <img src="assets/icons/item/7539.png" alt="Zeny" class="inline-icon" />
+          <span id="menu-zeny-count">0</span> <span class="zeny-unit">Z</span>
+        </div>
+        <button id="btn-open-kafra" class="ro-btn ro-btn-secondary" type="button">
+          <img src="assets/icons/item/607.png" alt="" class="inline-icon" />
+          Kafra Blessings
+        </button>
+        <button id="btn-open-cards" class="ro-btn ro-btn-secondary" type="button">
+          <img src="assets/icons/item/4001.png" alt="" class="inline-icon" />
+          Card Album (<span id="menu-card-count">0/12</span>)
+        </button>
+        <button id="btn-audio-toggle" class="ro-btn ro-btn-icon" type="button" title="Toggle BGM & Sound Effects">
+          🔊 Audio: ON
+        </button>
+      </div>
+    </header>
+
+    <div class="menu-grid">
+      <!-- Left Column: Job Class & Gender Pick -->
+      <aside class="ro-window panel-left">
+        <div class="ro-titlebar">
+          <span class="ro-titlebar-dot"></span>
+          <span>Character Select</span>
+          <button id="btn-randomize" class="titlebar-mini-btn" type="button">Randomize</button>
+        </div>
+        <div class="ro-window-body">
+          <div class="gender-row">
+            <span class="field-label">Body Sex</span>
+            <div class="segmented-group" role="group" aria-label="Character gender">
+              <button id="btn-gender-male" class="seg-btn active" data-gender="male" type="button">♂ Male</button>
+              <button id="btn-gender-female" class="seg-btn" data-gender="female" type="button">♀ Female</button>
+            </div>
+          </div>
+
+          <div class="field-label">Transcendent Job Class</div>
+          <div id="class-list" class="class-list"></div>
+
+          <!-- Equipped Card Slot Summary -->
+          <div class="equipped-cards-strip">
+            <div class="strip-header">
+              <span>Slotted Cards (<span id="slotted-count">0/2</span>)</span>
+              <button id="btn-manage-slots" class="link-btn" type="button">Change</button>
+            </div>
+            <div id="menu-slotted-cards" class="slotted-mini-row"></div>
+          </div>
+        </div>
+      </aside>
+
+      <!-- Center Column: Live Animated RO Hero Preview & Kit Details -->
+      <main class="hero-stage">
+        <div class="hero-pedestal-card">
+          <div class="pedestal-canvas-wrap">
+            <canvas id="preview-canvas" width="280" height="260"></canvas>
+            <div class="preview-pose-controls">
+              <button class="pose-btn active" data-pose="idle_s" type="button">Stand</button>
+              <button class="pose-btn" data-pose="walk_sw" type="button">Walk</button>
+              <button class="pose-btn" data-pose="atk_s" type="button">Attack</button>
+              <button class="pose-btn" data-pose="cast_s" type="button">Cast</button>
+            </div>
+          </div>
+
+          <div class="hero-kit-box">
+            <div class="hero-kit-header">
+              <img id="preview-job-icon" src="assets/icons/job/4008.png" alt="" class="job-emblem-lg" />
+              <div>
+                <h2 id="preview-class-name" class="preview-class-name">Lord Knight</h2>
+                <div id="preview-class-role" class="preview-class-role">Frontline Cleaver · Sword &amp; Spear</div>
+              </div>
+            </div>
+            <p id="preview-class-desc" class="preview-class-desc"></p>
+
+            <div class="kit-abilities-row">
+              <div class="kit-ability-chip">
+                <img id="preview-start-icon" src="assets/icons/skill/62.png" alt="" />
+                <div>
+                  <div class="chip-tag">Auto Starter</div>
+                  <div id="preview-start-name" class="chip-name">Bowling Bash</div>
+                </div>
+              </div>
+              <div class="kit-ability-chip">
+                <img id="preview-mob-icon" src="assets/icons/skill/5.png" alt="" />
+                <div>
+                  <div class="chip-tag">Mobility [F · Lv.5]</div>
+                  <div id="preview-mob-name" class="chip-name">Charge Attack</div>
+                </div>
+              </div>
+            </div>
+
+            <div id="preview-stat-bars" class="preview-stat-bars"></div>
+          </div>
+        </div>
+
+        <div class="enter-world-bar">
+          <button id="btn-enter-world" class="ro-btn ro-btn-primary enter-world-btn" type="button">
+            <span>⚔ ENTER MIDGARD</span>
+            <kbd>Enter</kbd>
+          </button>
+        </div>
+      </main>
+
+      <!-- Right Column: Battleground Zone Picker -->
+      <aside class="ro-window panel-right">
+        <div class="ro-titlebar">
+          <span class="ro-titlebar-dot"></span>
+          <span>Select Battleground Map</span>
+        </div>
+        <div class="ro-window-body">
+          <div id="zone-list" class="zone-list"></div>
+          <div id="zone-detail-card" class="zone-detail-card"></div>
+        </div>
+      </aside>
+    </div>
+  </section>
+
+  <!-- In-Game HUD -->
+  <section id="hud-layer" class="hud-layer hidden">
+    <!-- Top Left Classic RO Basic Info Window -->
+    <div class="ro-window hud-basic-info">
+      <div class="ro-titlebar compact">
+        <span class="ro-titlebar-dot"></span>
+        <span id="hud-char-title">Lord Knight</span>
+        <span id="hud-zone-badge" class="hud-zone-badge">prt_fild08</span>
+      </div>
+      <div class="ro-window-body hud-info-body">
+        <div class="hud-bars">
+          <div class="stat-bar-row">
+            <span class="bar-lbl">HP</span>
+            <div class="bar-track hp-track">
+              <div id="hud-hp-fill" class="bar-fill hp-fill"></div>
+              <span id="hud-hp-text" class="bar-val">500 / 500</span>
+            </div>
+          </div>
+          <div class="stat-bar-row">
+            <span class="bar-lbl">SP</span>
+            <div class="bar-track sp-track">
+              <div id="hud-sp-fill" class="bar-fill sp-fill"></div>
+              <span id="hud-sp-text" class="bar-val">100 / 100</span>
+            </div>
+          </div>
+          <div class="stat-bar-row">
+            <span class="bar-lbl">Base Lv.<b id="hud-level">1</b></span>
+            <div class="bar-track exp-track">
+              <div id="hud-exp-fill" class="bar-fill exp-fill"></div>
+              <span id="hud-exp-text" class="bar-val">0%</span>
+            </div>
+          </div>
+        </div>
+        <div class="hud-counters">
+          <span>💀 <b id="hud-kills">0</b></span>
+          <span>🪙 <b id="hud-zeny">0</b>z</span>
+          <span>⚡ <b id="hud-dps">0</b> DPS</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Center Run Clock, Wave Escalation & Boss HP Bar -->
+    <div class="hud-top-center">
+      <div class="timer-pill">
+        <span id="hud-timer" class="hud-timer">00:00</span>
+        <span class="wave-sep">·</span>
+        <span id="hud-wave-label" class="hud-wave-label">Wave 1</span>
+      </div>
+      <div id="boss-bar-wrap" class="boss-bar-wrap hidden">
+        <div class="boss-bar-header">
+          <span class="mvp-crown">MVP</span>
+          <span id="boss-name-label">Baphomet</span>
+          <span id="boss-enrage-tag" class="boss-enrage-tag hidden">ENRAGED!</span>
+        </div>
+        <div class="boss-hp-track">
+          <div id="boss-hp-fill" class="boss-hp-fill"></div>
+          <span id="boss-hp-text" class="boss-hp-text">5000 / 5000</span>
+        </div>
+      </div>
+    </div>
+
+    <!-- Top Right Minimap with +/- Zoom & Collapse -->
+    <div id="minimap-box" class="ro-window hud-minimap">
+      <div class="ro-titlebar compact">
+        <span id="minimap-title">South Prontera</span>
+        <div class="minimap-btns">
+          <button id="btn-mm-zoom-in" class="mm-btn" type="button" title="Zoom In">+</button>
+          <button id="btn-mm-zoom-out" class="mm-btn" type="button" title="Zoom Out">−</button>
+          <button id="btn-mm-toggle" class="mm-btn" type="button" title="Collapse">▾</button>
+        </div>
+      </div>
+      <div id="minimap-body" class="minimap-body">
+        <canvas id="minimap-canvas" width="156" height="156"></canvas>
+      </div>
+    </div>
+
+    <!-- Center Banner for MVP Spawn / Card Drop / Transcendence -->
+    <div id="hud-banner" class="hud-banner hidden"></div>
+
+    <!-- Bottom Classic RO F1-F9 Skill & Passive Hotbar + Mobility Slot -->
+    <div class="hud-bottom-bar">
+      <div class="ro-hotbar-group">
+        <div class="hotbar-label">Active Skills</div>
+        <div id="hud-active-slots" class="hotbar-slots"></div>
+      </div>
+
+      <div class="mobility-slot-wrap">
+        <div id="hud-mobility-slot" class="mobility-slot locked" title="Unlocks at Base Lv. 5 — Cast toward cursor with [F]">
+          <img id="hud-mobility-icon" src="assets/icons/skill/5.png" alt="" />
+          <div id="hud-mobility-cd" class="slot-cd-sweep"></div>
+          <span class="slot-key">F</span>
+          <span id="hud-mobility-lock" class="slot-lock-tag">Lv.5</span>
+        </div>
+      </div>
+
+      <div class="ro-hotbar-group">
+        <div class="hotbar-label">Passives &amp; Buffs</div>
+        <div id="hud-passive-slots" class="hotbar-slots"></div>
+      </div>
+
+      <div class="controls-hint-strip">
+        <span><kbd>WASD</kbd> Move</span>
+        <span><kbd>Space</kbd> Hop</span>
+        <span><kbd>F</kbd> Dash</span>
+        <span><kbd>Wheel</kbd> Zoom</span>
+        <span><kbd>C</kbd> Tilt</span>
+        <span><kbd>Esc</kbd> Pause</span>
+      </div>
+    </div>
+
+    <!-- Mobile Touch Joystick -->
+    <div id="touch-joystick" class="touch-joystick hidden">
+      <div id="touch-knob" class="touch-knob"></div>
+    </div>
+    <button id="touch-dash-btn" class="touch-dash-btn hidden" type="button">F</button>
+  </section>
+
+  <!-- Level-Up Rarity Upgrade Card Modal (3D Tilt + Exact Before » After Diffs) -->
+  <section id="levelup-modal" class="overlay modal-backdrop">
+    <div class="levelup-container">
+      <div class="levelup-header">
+        <div class="angel-wing-badge">✦ JOB / BASE LEVEL UP! ✦</div>
+        <h2 id="levelup-title">Choose a Blessing of Odin</h2>
+        <p class="levelup-sub">Press <kbd>1</kbd> <kbd>2</kbd> <kbd>3</kbd> or click a card to empower your build</p>
+      </div>
+
+      <div id="upgrade-cards-row" class="upgrade-cards-row"></div>
+
+      <div class="levelup-footer">
+        <button id="btn-reroll" class="ro-btn ro-btn-secondary" type="button">
+          🎲 Reroll Choices (<span id="reroll-cost">25</span>z)
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Pause Modal -->
+  <section id="pause-modal" class="overlay modal-backdrop">
+    <div class="ro-window pause-window">
+      <div class="ro-titlebar">
+        <span class="ro-titlebar-dot"></span>
+        <span>Game Paused</span>
+      </div>
+      <div class="ro-window-body pause-body">
+        <h3>Adventure Suspended</h3>
+        <div id="pause-stats-grid" class="pause-stats-grid"></div>
+        <div class="pause-actions">
+          <button id="btn-resume" class="ro-btn ro-btn-primary" type="button">Resume (<kbd>Esc</kbd>)</button>
+          <button id="btn-pause-audio" class="ro-btn ro-btn-secondary" type="button">Toggle Audio</button>
+          <button id="btn-abandon" class="ro-btn ro-btn-danger" type="button">Return to Prontera</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Game Over / Victory Summary Modal -->
+  <section id="results-modal" class="overlay modal-backdrop">
+    <div class="ro-window results-window">
+      <div class="ro-titlebar">
+        <span class="ro-titlebar-dot"></span>
+        <span id="results-window-title">Run Summary</span>
+      </div>
+      <div class="ro-window-body results-body">
+        <div id="results-badge" class="results-badge">DEFEATED IN BATTLE</div>
+        <h2 id="results-headline">You have fallen in South Prontera Field</h2>
+        <p id="results-subline" class="results-subline"></p>
+
+        <div class="results-columns">
+          <div class="results-stats-box">
+            <h4>Run Statistics</h4>
+            <div id="results-stats-list" class="results-stats-list"></div>
+          </div>
+          <div class="results-damage-box">
+            <h4>Skill Damage Breakdown</h4>
+            <div id="results-dmg-bars" class="results-dmg-bars"></div>
+          </div>
+        </div>
+
+        <div id="results-cards-found" class="results-cards-found hidden">
+          <h4>✦ Monster Cards Obtained This Run! ✦</h4>
+          <div id="results-cards-list" class="results-cards-list"></div>
+        </div>
+
+        <div class="results-actions">
+          <button id="btn-play-again" class="ro-btn ro-btn-primary" type="button">
+            ⚔ Return to Character Select (<kbd>Enter</kbd>)
+          </button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Kafra Permanent Blessings Shop Modal -->
+  <section id="kafra-modal" class="overlay modal-backdrop">
+    <div class="ro-window meta-window">
+      <div class="ro-titlebar">
+        <span class="ro-titlebar-dot"></span>
+        <span>Kafra Corporation — Permanent Account Blessings</span>
+        <button id="btn-close-kafra" class="titlebar-close-btn" type="button">✕</button>
+      </div>
+      <div class="ro-window-body meta-body">
+        <div class="meta-top-row">
+          <p>Spend Zeny looted from runs to permanently strengthen every class across all future runs.</p>
+          <div class="zeny-pill">
+            <img src="assets/icons/item/7539.png" alt="" class="inline-icon" />
+            <span id="kafra-zeny-count">0</span> Z
+          </div>
+        </div>
+        <div id="kafra-upgrades-grid" class="kafra-upgrades-grid"></div>
+        <div class="meta-footer">
+          <button id="btn-reset-kafra" class="ro-btn ro-btn-secondary" type="button">Refund All Zeny</button>
+          <button id="btn-done-kafra" class="ro-btn ro-btn-primary" type="button">Done</button>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- Original RO Monster Card Album & Equipment Slotter Modal -->
+  <section id="cards-modal" class="overlay modal-backdrop">
+    <div class="ro-window meta-window cards-album-window">
+      <div class="ro-titlebar">
+        <span class="ro-titlebar-dot"></span>
+        <span>Midgard Monster Card Album — Slot Up to 2 Cards</span>
+        <button id="btn-close-cards" class="titlebar-close-btn" type="button">✕</button>
+      </div>
+      <div class="ro-window-body meta-body">
+        <div class="meta-top-row">
+          <p>Defeat Mini-Bosses &amp; MVPs for a chance to drop authentic Ragnarok Online Monster Cards, or craft missing cards with Zeny!</p>
+          <div class="zeny-pill">
+            <img src="assets/icons/item/7539.png" alt="" class="inline-icon" />
+            <span id="album-zeny-count">0</span> Z
+          </div>
+        </div>
+        <div id="card-album-grid" class="card-album-grid"></div>
+      </div>
+    </div>
+  </section>
+
+  <script type="module" src="js/main.js?v=2"></script>
+</body>
+</html>

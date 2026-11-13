@@ -1,0 +1,11 @@
+{
+  "name": "ragnarok-survivors",
+  "version": "1.0.0",
+  "description": "Ragnarok Survivors - Browser Survivor Action Roguelite built with authentic Ragnarok Online assets",
+  "type": "module",
+  "scripts": {
+    "dev": "node server.mjs",
+    "start": "node server.mjs",
+    "fetch-assets": "python3 scripts/fetch_assets.py"
+  }
+}
