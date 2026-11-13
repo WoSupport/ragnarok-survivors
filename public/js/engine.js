@@ -145,8 +145,11 @@ export class SurvivorsEngine {
       acc
     };
 
+    const worldHalf = zoneDef.worldHalf || 1800;
+
     this.run = {
       zone: zoneDef,
+      worldHalf,
       hero,
       time: 0,
       kills: 0,
@@ -163,7 +166,7 @@ export class SurvivorsEngine {
       loots: [],
       effects: [],
       floatingTexts: [],
-      props: this.generateProps(),
+      props: this.generateProps(worldHalf),
 
       spawnTimer: 0.4,
       bossIdx: 0,
@@ -177,20 +180,51 @@ export class SurvivorsEngine {
     this.cb.onBanner(`Entering ${zoneDef.name}`);
   }
 
-  generateProps() {
-    // Subtle decorative shrines / crystals scattered around world for spatial landmarks
+  generateProps(worldHalf = 1800) {
+    // Subtle decorative shrines / crystals scattered around bounded zone for spatial landmarks
     const props = [];
+    const maxDist = Math.max(600, worldHalf - 160);
+    const lim = worldHalf - 120;
     for (let i = 0; i < 42; i++) {
       const ang = (i / 42) * Math.PI * 2 + (i % 5) * 0.4;
-      const dist = 340 + ((i * 197) % 1900);
+      const dist = 320 + ((i * 197) % (maxDist - 320));
       props.push({
-        x: Math.cos(ang) * dist,
-        y: Math.sin(ang) * dist,
+        x: Math.max(-lim, Math.min(lim, Math.cos(ang) * dist)),
+        y: Math.max(-lim, Math.min(lim, Math.sin(ang) * dist)),
         kind: i % 6 === 0 ? 'pylon' : 'stone',
         used: false
       });
     }
     return props;
+  }
+
+  clampWorldX(x, pad = 24) {
+    const lim = (this.run?.worldHalf || 1800) - pad;
+    return Math.max(-lim, Math.min(lim, x));
+  }
+
+  clampWorldY(y, pad = 24) {
+    const lim = (this.run?.worldHalf || 1800) - pad;
+    return Math.max(-lim, Math.min(lim, y));
+  }
+
+  pickSpawnPoint(dist) {
+    const r = this.run;
+    const h = r.hero;
+    const lim = (r.worldHalf || 1800) - 32;
+    for (let attempt = 0; attempt < 10; attempt++) {
+      const ang = Math.random() * Math.PI * 2;
+      const x = h.x + Math.cos(ang) * dist;
+      const y = h.y + Math.sin(ang) * dist;
+      if (x >= -lim && x <= lim && y >= -lim && y <= lim) {
+        return { x, y };
+      }
+    }
+    const inward = Math.atan2(-h.y, -h.x) + (Math.random() - 0.5) * 1.1;
+    return {
+      x: this.clampWorldX(h.x + Math.cos(inward) * dist, 32),
+      y: this.clampWorldY(h.y + Math.sin(inward) * dist, 32)
+    };
   }
 
   recalcHeroStats(fullHeal = false) {
@@ -258,8 +292,9 @@ export class SurvivorsEngine {
 
     const startX = h.x;
     const startY = h.y;
-    const endX = h.x + Math.cos(ang) * travel;
-    const endY = h.y + Math.sin(ang) * travel;
+    const endX = this.clampWorldX(h.x + Math.cos(ang) * travel, 24);
+    const endY = this.clampWorldY(h.y + Math.sin(ang) * travel, 24);
+    h.dirAngle = ang;
 
     h.iframeTimer = Math.max(h.iframeTimer, 0.45);
     h.sp = Math.min(h.maxSp, h.sp + 18);
@@ -413,8 +448,8 @@ export class SurvivorsEngine {
       my /= mLen;
       h.vx = mx * h.speed;
       h.vy = my * h.speed;
-      h.x += h.vx * dt;
-      h.y += h.vy * dt;
+      h.x = this.clampWorldX(h.x + h.vx * dt, 24);
+      h.y = this.clampWorldY(h.y + h.vy * dt, 24);
       h.dirAngle = Math.atan2(my, mx);
       h.animMs += dt * 1000 * (h.speed / 175);
       this.updateHeroDirectionPose(mx, my, true);
@@ -944,8 +979,8 @@ export class SurvivorsEngine {
 
     // Knockback (reduced on bosses)
     const kb = e.isBoss ? knockback * 0.12 : knockback;
-    e.x += Math.cos(ang) * kb * 0.28;
-    e.y += Math.sin(ang) * kb * 0.28;
+    e.x = this.clampWorldX(e.x + Math.cos(ang) * kb * 0.28, 22);
+    e.y = this.clampWorldY(e.y + Math.sin(ang) * kb * 0.28, 22);
 
     this.addFloatingText(
       e.x + (Math.random() - 0.5) * 18,
@@ -972,10 +1007,16 @@ export class SurvivorsEngine {
       this.audio.playSfx('hit1', 0.20, 140);
     }
 
+    const pushLoot = (item) => {
+      item.x = this.clampWorldX(item.x, 32);
+      item.y = this.clampWorldY(item.y, 32);
+      r.loots.push(item);
+    };
+
     // Drop EXP Crystal
     const xpVal = Math.round(e.def.xp * r.zone.mult);
     const xpIcon = xpVal >= 80 ? 984 : xpVal >= 22 ? 985 : 909;
-    r.loots.push({
+    pushLoot({
       kind: 'xp',
       x: e.x,
       y: e.y,
@@ -988,9 +1029,9 @@ export class SurvivorsEngine {
     const roll = Math.random();
     if (e.isBoss) {
       const zenyAmt = Math.round((e.def.mvp ? 95 : 45) * r.zone.mult * r.hero.acc.zenyMult);
-      r.loots.push({ kind: 'zeny', x: e.x - 18, y: e.y + 8, val: zenyAmt, icon: 7539, magnetized: true });
-      r.loots.push({ kind: 'chest', x: e.x + 18, y: e.y + 8, val: 1, icon: 603, magnetized: false });
-      r.loots.push({ kind: 'potion', x: e.x, y: e.y + 22, val: 0.45, icon: 607, magnetized: false });
+      pushLoot({ kind: 'zeny', x: e.x - 18, y: e.y + 8, val: zenyAmt, icon: 7539, magnetized: true });
+      pushLoot({ kind: 'chest', x: e.x + 18, y: e.y + 8, val: 1, icon: 603, magnetized: false });
+      pushLoot({ kind: 'potion', x: e.x, y: e.y + 22, val: 0.45, icon: 607, magnetized: false });
 
       if (e.def.mvp) {
         this.audio.playSfx('mvp', 0.55, 50);
@@ -1001,14 +1042,14 @@ export class SurvivorsEngine {
       // Authentic RO Monster Card drop chance (45% on MVP, 28% on Mini-Boss)
       const cardChance = e.def.mvp ? 0.55 : 0.32;
       if (e.def.cardId && Math.random() < cardChance) {
-        r.loots.push({ kind: 'card', x: e.x, y: e.y - 12, cardId: e.def.cardId, icon: 4001, magnetized: false });
+        pushLoot({ kind: 'card', x: e.x, y: e.y - 12, cardId: e.def.cardId, icon: 4001, magnetized: false });
       }
     } else if (roll < 0.085) {
       const zenyAmt = Math.max(2, Math.round((3 + Math.random() * 4) * r.zone.mult * r.hero.acc.zenyMult));
-      r.loots.push({ kind: 'zeny', x: e.x + 6, y: e.y, val: zenyAmt, icon: 7539, magnetized: false });
+      pushLoot({ kind: 'zeny', x: e.x + 6, y: e.y, val: zenyAmt, icon: 7539, magnetized: false });
     } else if (roll < 0.112) {
       const isWhite = Math.random() < 0.25;
-      r.loots.push({ kind: 'potion', x: e.x - 6, y: e.y, val: isWhite ? 0.28 : 0.14, icon: isWhite ? 504 : 501, magnetized: false });
+      pushLoot({ kind: 'potion', x: e.x - 6, y: e.y, val: isWhite ? 0.28 : 0.14, icon: isWhite ? 504 : 501, magnetized: false });
     }
   }
 
@@ -1136,14 +1177,11 @@ export class SurvivorsEngine {
 
   spawnMonster(mobId, isBoss = false) {
     const r = this.run;
-    const h = r.hero;
     const def = MOB_DB[mobId];
     if (!def) return;
 
-    const ang = Math.random() * Math.PI * 2;
     const dist = isBoss ? 410 : 470 + Math.random() * 140;
-    const x = h.x + Math.cos(ang) * dist;
-    const y = h.y + Math.sin(ang) * dist;
+    const { x, y } = this.pickSpawnPoint(dist);
 
     const timeScale = 1 + (r.time / 60) * 0.34;
     const maxHp = Math.round(def.hp * r.zone.mult * timeScale);
@@ -1222,9 +1260,9 @@ export class SurvivorsEngine {
 
       // Relocate non-boss monsters that fell super far behind camera
       if (!e.isBoss && dist > 1100) {
-        const ang = Math.random() * Math.PI * 2;
-        e.x = h.x + Math.cos(ang) * 520;
-        e.y = h.y + Math.sin(ang) * 520;
+        const reloc = this.pickSpawnPoint(520);
+        e.x = reloc.x;
+        e.y = reloc.y;
         continue;
       }
 
@@ -1241,8 +1279,8 @@ export class SurvivorsEngine {
           e.castCd = e.enraged ? 3.4 : 5.2;
           e.atkTimer = 0.55;
           // Place telegraphed red RO spell circle ahead of hero's movement!
-          const leadX = h.x + h.vx * 0.45;
-          const leadY = h.y + h.vy * 0.45;
+          const leadX = this.clampWorldX(h.x + h.vx * 0.45, 48);
+          const leadY = this.clampWorldY(h.y + h.vy * 0.45, 48);
           r.telegraphs.push({
             friendly: false,
             x: leadX,
@@ -1274,10 +1312,13 @@ export class SurvivorsEngine {
           const push = (minSep - sd) * 0.32;
           e.x += (sx / sd) * push;
           e.y += (sy / sd) * push;
-          o.x -= (sx / sd) * push;
-          o.y -= (sy / sd) * push;
+          o.x = this.clampWorldX(o.x - (sx / sd) * push, 22);
+          o.y = this.clampWorldY(o.y - (sy / sd) * push, 22);
         }
       }
+
+      e.x = this.clampWorldX(e.x, 22);
+      e.y = this.clampWorldY(e.y, 22);
 
       // Contact melee hit on Hero
       if (dist <= e.radius + 17 && e.contactCd <= 0) {
@@ -1452,8 +1493,9 @@ export class SurvivorsEngine {
       y: this.viewH / 2 + (wy - h.y) * this.zoom * this.tiltY + sy
     });
 
-    // 1. Tiled Authentic RO Ground Map
+    // 1. Tiled Authentic RO Ground Map & Bounded Zone Perimeter
     this.renderGround(ctx, r.zone.id, h.x, h.y, sx, sy);
+    this.renderZoneBoundary(ctx, toScreen);
 
     // 2. Ground Skill Zones & Boss Cast Telegraphs
     this.renderGroundZones(ctx, toScreen);
@@ -1519,6 +1561,55 @@ export class SurvivorsEngine {
         ctx.drawImage(tile, x + sx, y + sy, tw + 1, th + 1);
       }
     }
+  }
+
+  renderZoneBoundary(ctx, toScreen) {
+    const wh = this.run.worldHalf || 1800;
+    const tl = toScreen(-wh, -wh);
+    const br = toScreen(wh, wh);
+    const bw = br.x - tl.x;
+    const bh = br.y - tl.y;
+
+    ctx.save();
+    // Shade out-of-bounds area beyond zone walls
+    ctx.fillStyle = 'rgba(8, 12, 22, 0.66)';
+    if (tl.y > 0) ctx.fillRect(0, 0, this.viewW, tl.y);
+    if (br.y < this.viewH) ctx.fillRect(0, br.y, this.viewW, this.viewH - br.y);
+    const midTop = Math.max(0, tl.y);
+    const midH = Math.max(0, Math.min(this.viewH, br.y) - midTop);
+    if (tl.x > 0 && midH > 0) ctx.fillRect(0, midTop, tl.x, midH);
+    if (br.x < this.viewW && midH > 0) ctx.fillRect(br.x, midTop, this.viewW - br.x, midH);
+
+    // Crisp RO stone & ward perimeter border
+    ctx.strokeStyle = 'rgba(15, 23, 42, 0.92)';
+    ctx.lineWidth = 5;
+    ctx.strokeRect(tl.x, tl.y, bw, bh);
+    ctx.strokeStyle = 'rgba(147, 197, 253, 0.45)';
+    ctx.lineWidth = 2;
+    ctx.strokeRect(tl.x, tl.y, bw, bh);
+
+    // Decorative RO Warp Portal rings at the 4 cardinal gates
+    const pulse = 0.88 + 0.12 * Math.sin(this.run.time * 4.2);
+    const gates = [
+      [0, -wh],
+      [0, wh],
+      [-wh, 0],
+      [wh, 0]
+    ];
+    for (const [gx, gy] of gates) {
+      const gp = toScreen(gx, gy);
+      if (gp.x < -80 || gp.x > this.viewW + 80 || gp.y < -80 || gp.y > this.viewH + 80) continue;
+      const rx = 38 * this.zoom * pulse;
+      const ry = 22 * this.zoom * this.tiltY * pulse;
+      ctx.fillStyle = 'rgba(96, 165, 250, 0.22)';
+      ctx.strokeStyle = 'rgba(224, 242, 254, 0.78)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(gp.x, gp.y, rx, ry, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+    }
+    ctx.restore();
   }
 
   renderGroundZones(ctx, toScreen) {
@@ -1961,65 +2052,128 @@ export class SurvivorsEngine {
     const h = this.mmCanvas.height;
     ctx.clearRect(0, 0, w, h);
 
-    // Draw authentic overhead RO Map image centered around player
+    // Dark base behind minimap (clean backdrop for transparent dungeon borders like pay_dun00)
+    ctx.fillStyle = '#0f172a';
+    ctx.fillRect(0, 0, w, h);
+
+    const worldHalf = r.worldHalf || 1800;
+    const normCoord = (val) => {
+      const clamped = Math.max(-worldHalf, Math.min(worldHalf, val));
+      return 0.05 + ((clamped + worldHalf) / (worldHalf * 2)) * 0.90;
+    };
+
+    const heroU = normCoord(r.hero.x);
+    const heroV = normCoord(r.hero.y);
+
+    // At 1.0x zoom: full RO zone map stays fixed (viewFrac = 1, viewU0 = 0, viewV0 = 0)
+    // When zoomed in (> 1.0x): viewport pans smoothly around hero, clamped to map edges
+    const zoom = Math.max(1.0, Math.min(2.5, this.mmZoom || 1.0));
+    const viewFrac = 1 / zoom;
+    const viewU0 = Math.max(0, Math.min(1 - viewFrac, heroU - viewFrac / 2));
+    const viewV0 = Math.max(0, Math.min(1 - viewFrac, heroV - viewFrac / 2));
+
     const mmSrc = this.assets.manifest?.maps?.[r.zone.id]?.minimap;
     const mmImg = this.assets.getImage(mmSrc);
     if (mmImg) {
       ctx.save();
-      ctx.globalAlpha = 0.72;
-      ctx.drawImage(mmImg, 0, 0, w, h);
+      ctx.globalAlpha = 0.86;
+      const sx = viewU0 * mmImg.width;
+      const sy = viewV0 * mmImg.height;
+      const sw = viewFrac * mmImg.width;
+      const sh = viewFrac * mmImg.height;
+      ctx.drawImage(mmImg, sx, sy, sw, sh, 0, 0, w, h);
       ctx.restore();
-    } else {
-      ctx.fillStyle = '#111827';
-      ctx.fillRect(0, 0, w, h);
     }
 
-    const scale = 0.085 * this.mmZoom;
-    const cx = w / 2;
-    const cy = h / 2;
+    const toMinimap = (wx, wy) => ({
+      x: ((normCoord(wx) - viewU0) / viewFrac) * w,
+      y: ((normCoord(wy) - viewV0) / viewFrac) * h
+    });
 
-    // Shrines (Yellow diamonds)
+    // 1. Odin Shrines (Golden diamonds anchored to true map coordinates)
     for (const p of r.props) {
       if (p.kind !== 'pylon' || p.used) continue;
-      const mx = cx + (p.x - r.hero.x) * scale;
-      const my = cy + (p.y - r.hero.y) * scale;
-      if (mx < 4 || mx > w - 4 || my < 4 || my > h - 4) continue;
+      const m = toMinimap(p.x, p.y);
+      if (m.x < 2 || m.x > w - 2 || m.y < 2 || m.y > h - 2) continue;
+      ctx.save();
+      ctx.translate(m.x, m.y);
+      ctx.rotate(Math.PI / 4);
       ctx.fillStyle = '#fde047';
-      ctx.fillRect(mx - 2.5, my - 2.5, 5, 5);
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.2;
+      ctx.fillRect(-2.6, -2.6, 5.2, 5.2);
+      ctx.strokeRect(-2.6, -2.6, 5.2, 5.2);
+      ctx.restore();
     }
 
-    // Chests & Cards (Blue/Gold blips)
+    // 2. Chests & Monster Cards (Blue/Gold blips anchored to true map coordinates)
     for (const l of r.loots) {
       if (l.kind !== 'chest' && l.kind !== 'card') continue;
-      const mx = cx + (l.x - r.hero.x) * scale;
-      const my = cy + (l.y - r.hero.y) * scale;
-      if (mx < 4 || mx > w - 4 || my < 4 || my > h - 4) continue;
+      const m = toMinimap(l.x, l.y);
+      if (m.x < 2 || m.x > w - 2 || m.y < 2 || m.y > h - 2) continue;
       ctx.fillStyle = l.kind === 'card' ? '#fbbf24' : '#60a5fa';
+      ctx.strokeStyle = '#0f172a';
+      ctx.lineWidth = 1.2;
       ctx.beginPath();
-      ctx.arc(mx, my, 3.5, 0, Math.PI * 2);
+      ctx.arc(m.x, m.y, 3.5, 0, Math.PI * 2);
       ctx.fill();
+      ctx.stroke();
     }
 
-    // Monsters & Red Skull Bosses
+    // 3. Authentic RO Style: Only Mini-Bosses & MVPs appear on minimap (regular mobs hidden)
+    const pulse = 0.88 + 0.22 * Math.sin(r.time * 6);
     for (const e of r.enemies) {
-      if (e.dead) continue;
-      const mx = cx + (e.x - r.hero.x) * scale;
-      const my = cy + (e.y - r.hero.y) * scale;
-      if (mx < 3 || mx > w - 3 || my < 3 || my > h - 3) continue;
-      ctx.fillStyle = e.isBoss ? '#facc15' : '#ef4444';
-      const rad = e.isBoss ? 4.5 : 1.8;
-      ctx.beginPath();
-      ctx.arc(mx, my, rad, 0, Math.PI * 2);
-      ctx.fill();
+      if (e.dead || !e.isBoss) continue;
+      const m = toMinimap(e.x, e.y);
+      if (m.x < 2 || m.x > w - 2 || m.y < 2 || m.y > h - 2) continue;
+      ctx.save();
+      ctx.translate(m.x, m.y);
+      if (e.def.mvp) {
+        // Classic RO MVP Cross / Convex Mirror marker
+        const arm = 5.4 * pulse;
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 3.6;
+        ctx.beginPath();
+        ctx.moveTo(-arm, 0); ctx.lineTo(arm, 0);
+        ctx.moveTo(0, -arm); ctx.lineTo(0, arm);
+        ctx.stroke();
+        ctx.strokeStyle = '#ef4444';
+        ctx.lineWidth = 2.0;
+        ctx.stroke();
+        ctx.fillStyle = '#fde047';
+        ctx.beginPath();
+        ctx.arc(0, 0, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      } else {
+        // Mini-Boss marker
+        ctx.fillStyle = '#f97316';
+        ctx.strokeStyle = '#0f172a';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.arc(0, 0, 4.0 * pulse, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+      }
+      ctx.restore();
     }
 
-    // Hero Center Arrow
+    // 4. Hero Directional RO Arrow
+    const hm = toMinimap(r.hero.x, r.hero.y);
+    ctx.save();
+    ctx.translate(hm.x, hm.y);
+    ctx.rotate(r.hero.dirAngle);
+    ctx.beginPath();
+    ctx.moveTo(6.4, 0);
+    ctx.lineTo(-4.6, -4.4);
+    ctx.lineTo(-2.5, 0);
+    ctx.lineTo(-4.6, 4.4);
+    ctx.closePath();
     ctx.fillStyle = '#ffffff';
     ctx.strokeStyle = '#0f172a';
-    ctx.lineWidth = 1.5;
-    ctx.beginPath();
-    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
-    ctx.fill();
+    ctx.lineWidth = 1.8;
+    ctx.lineJoin = 'round';
     ctx.stroke();
+    ctx.fill();
+    ctx.restore();
   }
 }

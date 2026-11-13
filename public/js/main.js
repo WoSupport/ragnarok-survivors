@@ -4,7 +4,7 @@ import { CLASSES, ZONES, SKILLS, PASSIVES, MOB_DB, CARDS, KAFRA_UPGRADES } from 
 import { AudioManager } from './audio.js?v=2';
 import { AssetStore, resolveAssetUrl } from './assets.js?v=2';
 import { MetaState, generateUpgradeOffer } from './progression.js?v=2';
-import { SurvivorsEngine } from './engine.js?v=2';
+import { SurvivorsEngine } from './engine.js?v=3';
 
 const assets = new AssetStore();
 const audio = new AudioManager();
@@ -165,10 +165,10 @@ function bindUiEvents() {
   // Mobility slot click + Minimap controls
   el('hud-mobility-slot').addEventListener('click', () => engine.triggerMobility());
   el('btn-mm-zoom-in').addEventListener('click', () => {
-    engine.mmZoom = Math.min(2.2, engine.mmZoom + 0.25);
+    engine.mmZoom = Math.min(2.5, +(engine.mmZoom + 0.35).toFixed(2));
   });
   el('btn-mm-zoom-out').addEventListener('click', () => {
-    engine.mmZoom = Math.max(0.5, engine.mmZoom - 0.25);
+    engine.mmZoom = Math.max(1.0, +(engine.mmZoom - 0.35).toFixed(2));
   });
   el('btn-mm-toggle').addEventListener('click', () => {
     el('minimap-body').classList.toggle('hidden');
